@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kling Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:sans-serif;background:#0d0d0f;color:#e8e8f0;min-height:100vh;padding:20px}
+h1{color:#a78bfa;margin-bottom:20px;font-size:22px}
+.status{display:inline-block;padding:4px 12px;border-radius:99px;font-size:13px;background:#1a1a1e;margin-bottom:20px}
+.status.on{color:#22c55e}.status.off{color:#ef4444}
+.card{background:#141416;border:1px solid #2a2a32;border-radius:12px;padding:20px;margin-bottom:16px}
+label{display:block;font-size:13px;color:#7a7a8c;margin-bottom:6px}
+textarea,select,input{width:100%;background:#1a1a1e;border:1px solid #2a2a32;border-radius:8px;padding:10px;color:#e8e8f0;font-size:14px;font-family:sans-serif;margin-bottom:12px}
+textarea{min-height:90px;resize:vertical}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{width:100%;padding:14px;background:#7c5cfc;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer}
+button:disabled{opacity:0.5}
+.result-item{background:#141416;border:1px solid #2a2a32;border-radius:12px;padding:16px;margin-bottom:12px}
+video{width:100%;border-radius:8px;margin-top:10px}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;margin-bottom:8px}
+.badge.pending{background:#f97316;color:#fff}
+.badge.done{background:#22c55e;color:#fff}
+.badge.error{background:#ef4444;color:#fff}
+.empty{text-align:center;padding:40px;color:#3a3a48}
+</style>
+</head>
+<body>
+<h1>Kling Studio</h1>
+<div id="sp" class="status off">Offline</div>
+<div class="card">
+<label>Mode</label>
+<select id="mode" onchange="toggleMode()">
+<option value="text">Teks ke Video</option>
+<option value="image">Gambar ke Video</option>
+<option value="video">Video ke Video</option>
+</select>
+<label>Prompt</label>
+<textarea id="prompt" placeholder="Contoh: Pantai sunset, ombak tenang, sinematik..."></textarea>
+<div id="imgRow" style="display:none"><label>URL Gambar</label><input type="url" id="imgUrl" placeholder="https://...jpg"></div>
+<div id="vidRow" style="display:none"><label>URL Video</label><input type="url" id="vidUrl" placeholder="https://...mp4"></div>
+<div class="row">
+<div><label>Durasi</label><select id="dur"><option value="5">5 detik</option><option value="10">10 detik</option></select></div>
+<div><label>Rasio</label><select id="ratio"><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option></select></div>
+</div>
+<label>Negative Prompt</label>
+<input type="text" id="neg" value="blur, distort, low quality">
+<button id="btn" onclick="generate()">Generate Video</button>
+</div>
+<div id="results"><div class="empty">Belum ada video. Isi prompt lalu klik Generate.</div></div>
+<script>
+var jobs=[];
+async function checkHealth(){try{var r=await fetch('/api/health');var d=await r.json();var el=document.getElementById('sp');if(d.ok){el.textContent='Online';el.className='status on';}else{el.textContent='API Key belum diset';}}catch(e){}}
+function toggleMode(){var m=document.getElementById('mode').value;document.getElementById('imgRow').style.display=m==='image'?'block':'none';document.getElementById('vidRow').style.display=m==='video'?'block':'none';}
+async function generate(){var p=document.getElementById('prompt').value.trim();if(!p){alert('Isi prompt dulu!');return;}var btn=document.getElementById('btn');btn.disabled=true;btn.textContent='Mengirim...';try{var b={mode:document.getElementById('mode').value,prompt:p,image_url:document.getElementById('imgUrl').value||undefined,video_url:document.getElementById('vidUrl').value||undefined,duration:document.getElementById('dur').value,aspect_ratio:document.getElementById('ratio').value,negative_prompt:document.getElementById('neg').value};var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});var d=await r.json();if(d.data&&d.data.task_id){jobs.unshift({id:d.data.task_id,prompt:p,status:'pending',url:null});render();pollJob(d.data.task_id);}else{alert('Error: '+(d.message||d.error||JSON.stringify(d)));}}catch(e){alert('Gagal: '+e.message);}btn.disabled=false;btn.textContent='Generate Video';}
+async function pollJob(id){var job=jobs.find(function(j){return j.id===id;});if(!job||job.status==='done'||job.status==='error')return;try{var r=await fetch('/api/status/'+id);var d=await r.json();var s=d.data&&d.data.status;if(s==='SUCCESS'||s==='success'){job.status='done';job.url=(d.data.output&&(d.data.output.video_url||(d.data.output[0]&&d.data.output[0].url)))||'';}else if(s==='FAILED'||s==='failed'){job.status='error';}else{setTimeout(function(){pollJob(id);},5000);}}catch(e){setTimeout(function(){pollJob(id);},8000);}render();}
+function render(){var el=document.getElementById('results');if(!jobs.length){el.innerHTML='<div class="empty">Belum ada video.</div>';return;}el.innerHTML=jobs.map(function(j){return'<div class="result-item"><span class="badge '+j.status+'">'+(j.status==='pending'?'Proses...':j.status==='done'?'Selesai':'Gagal')+'</span><p style="font-size:14px;margin:6px 0">'+j.prompt.substring(0,60)+'</p>'+(j.url?'<video controls src="'+j.url+'"></video><a href="'+j.url+'" target="_blank" style="display:block;text-align:center;margin-top:8px;color:#a78bfa">Download</a>':'')+'</div>';}).join('');}
+checkHealth();setInterval(checkHealth,30000);
+</script>
+</body>
+</html>
